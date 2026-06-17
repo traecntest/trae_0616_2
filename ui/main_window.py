@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._init_toolbar()
         self._init_statusbar()
+        self._update_status()
 
     def _init_ui(self) -> None:
         central_widget = QWidget()
@@ -60,10 +61,12 @@ class MainWindow(QMainWindow):
 
         btn_layout = QHBoxLayout()
         self._execute_btn = QPushButton("执行 (Ctrl+Enter)")
+        self._execute_btn.setEnabled(True)
         self._execute_btn.clicked.connect(self.execute_sql)
         btn_layout.addWidget(self._execute_btn)
 
         self._explain_btn = QPushButton("解释执行")
+        self._explain_btn.setEnabled(True)
         self._explain_btn.clicked.connect(self._execute_explain)
         btn_layout.addWidget(self._explain_btn)
 
@@ -199,12 +202,17 @@ class MainWindow(QMainWindow):
         self._history_panel.refresh()
 
     def _update_status(self) -> None:
-        if self._db.is_connected():
+        connected = self._db.is_connected()
+        if connected:
             db_path = self._db.get_current_db()
             db_name = os.path.basename(db_path) if db_path else ""
             self._status_label.setText(f"已连接: {db_name}")
+            self._execute_btn.setEnabled(True)
+            self._explain_btn.setEnabled(True)
         else:
             self._status_label.setText("未连接")
+            self._execute_btn.setEnabled(False)
+            self._explain_btn.setEnabled(False)
 
     def execute_sql(self) -> None:
         sql = self._sql_editor.get_sql()
@@ -230,12 +238,26 @@ class MainWindow(QMainWindow):
         if not sql:
             QMessageBox.warning(self, "提示", "请输入 SQL 语句")
             return
+
+        if not self._db.is_connected():
+            QMessageBox.warning(self, "提示", "请先打开数据库")
+            return
+
         explain_sql = f"EXPLAIN QUERY PLAN {sql}"
-        self._sql_editor.set_sql(explain_sql)
-        self.execute_sql()
+
+        self._execute_btn.setEnabled(False)
+        self._explain_btn.setEnabled(False)
+        self._status_bar.showMessage("执行中...")
+
+        self._executor.execute_async(
+            explain_sql,
+            on_result=self._on_query_finished,
+            on_error=self._on_query_error
+        )
 
     def _on_query_finished(self, rows, columns, elapsed, row_count, success, error_msg) -> None:
         self._execute_btn.setEnabled(True)
+        self._explain_btn.setEnabled(True)
         self._time_label.setText(f"耗时: {elapsed*1000:.0f}ms")
 
         if columns and rows:
@@ -257,6 +279,7 @@ class MainWindow(QMainWindow):
 
     def _on_query_error(self, error_msg: str) -> None:
         self._execute_btn.setEnabled(True)
+        self._explain_btn.setEnabled(True)
         self._msg_text.setText(f"执行失败:\n{error_msg}")
         self._result_tabs.setCurrentIndex(1)
         self._status_bar.showMessage("执行失败", 3000)

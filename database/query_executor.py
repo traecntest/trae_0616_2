@@ -23,14 +23,19 @@ class QueryWorker(QThread):
 
     def run(self) -> None:
         start_time = time.time()
+        thread_conn = None
         try:
             db = DatabaseManager()
-            conn = db.get_connection(self._db_path)
-            if not conn:
-                self.error_signal.emit("No database connection")
+            db_path = self._db_path or db.get_current_db()
+
+            if not db_path:
+                self.error_signal.emit("No database selected")
                 return
 
-            cursor = conn.cursor()
+            thread_conn = sqlite3.connect(db_path)
+            thread_conn.row_factory = sqlite3.Row
+
+            cursor = thread_conn.cursor()
             cursor.execute(self._sql)
 
             if cursor.description:
@@ -40,7 +45,7 @@ class QueryWorker(QThread):
                 success = True
                 error_msg = ""
             else:
-                conn.commit()
+                thread_conn.commit()
                 rows = []
                 columns = []
                 row_count = cursor.rowcount
@@ -50,14 +55,17 @@ class QueryWorker(QThread):
             elapsed = time.time() - start_time
 
             if self._history:
-                self._history.add_record(
-                    sql_text=self._sql,
-                    database_path=self._db_path or db.get_current_db() or "",
-                    execution_time=elapsed,
-                    row_count=row_count,
-                    success=success,
-                    error_message=error_msg
-                )
+                try:
+                    self._history.add_record(
+                        sql_text=self._sql,
+                        database_path=db_path or "",
+                        execution_time=elapsed,
+                        row_count=row_count,
+                        success=success,
+                        error_message=error_msg
+                    )
+                except Exception:
+                    pass
 
             self.finished_signal.emit(rows, columns, elapsed, row_count, success, error_msg)
 
@@ -65,15 +73,40 @@ class QueryWorker(QThread):
             elapsed = time.time() - start_time
             error_msg = str(e)
             if self._history:
-                self._history.add_record(
-                    sql_text=self._sql,
-                    database_path=self._db_path or "",
-                    execution_time=elapsed,
-                    row_count=0,
-                    success=False,
-                    error_message=error_msg
-                )
+                try:
+                    self._history.add_record(
+                        sql_text=self._sql,
+                        database_path=self._db_path or "",
+                        execution_time=elapsed,
+                        row_count=0,
+                        success=False,
+                        error_message=error_msg
+                    )
+                except Exception:
+                    pass
             self.error_signal.emit(error_msg)
+        except Exception as e:
+            elapsed = time.time() - start_time
+            error_msg = f"Unexpected error: {str(e)}"
+            if self._history:
+                try:
+                    self._history.add_record(
+                        sql_text=self._sql,
+                        database_path=self._db_path or "",
+                        execution_time=elapsed,
+                        row_count=0,
+                        success=False,
+                        error_message=error_msg
+                    )
+                except Exception:
+                    pass
+            self.error_signal.emit(error_msg)
+        finally:
+            if thread_conn:
+                try:
+                    thread_conn.close()
+                except Exception:
+                    pass
 
 
 class QueryExecutor:

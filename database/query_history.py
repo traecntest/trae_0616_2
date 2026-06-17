@@ -12,7 +12,7 @@ class QueryHistory:
             os.makedirs(app_data, exist_ok=True)
             db_path = os.path.join(app_data, "history.db")
         self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
