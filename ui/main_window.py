@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(QLabel("SQL 编辑器"))
 
         self._sql_editor = SqlEditor()
+        self._sql_editor.execute_requested.connect(self.execute_sql)
         center_layout.addWidget(self._sql_editor, 2)
 
         btn_layout = QHBoxLayout()
@@ -79,6 +80,19 @@ class MainWindow(QMainWindow):
         center_layout.addLayout(btn_layout)
 
         center_layout.addWidget(QLabel("查询结果"))
+
+        result_info_layout = QHBoxLayout()
+        self._result_info_label = QLabel("就绪")
+        self._result_info_label.setStyleSheet("color: #666; padding: 4px;")
+        result_info_layout.addWidget(self._result_info_label)
+        result_info_layout.addStretch()
+
+        self._export_btn = QPushButton("导出结果")
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self._export_results)
+        result_info_layout.addWidget(self._export_btn)
+
+        center_layout.addLayout(result_info_layout)
 
         self._result_tabs = QTabWidget()
 
@@ -194,6 +208,9 @@ class MainWindow(QMainWindow):
             self._db.disconnect(current_db)
             self._db_tree.refresh()
             self._result_table.clear()
+            self._result_info_label.setText("就绪")
+            self._result_info_label.setStyleSheet("color: #666; padding: 4px;")
+            self._export_btn.setEnabled(False)
             self._update_status()
             self._status_bar.showMessage("数据库已关闭", 3000)
 
@@ -263,9 +280,24 @@ class MainWindow(QMainWindow):
         if columns and rows:
             self._result_table.set_static_data(rows, columns)
             self._row_count_label.setText(f"行数: {len(rows)}")
+            self._result_info_label.setText(
+                f"✅ 查询完成 | 记录数: {len(rows)} 行 | 列数: {len(columns)} | 耗时: {elapsed*1000:.1f}ms"
+            )
+            self._result_info_label.setStyleSheet("color: #228b22; padding: 4px; font-weight: bold;")
+            self._export_btn.setEnabled(True)
             self._result_tabs.setCurrentIndex(0)
         else:
-            self._row_count_label.setText(f"影响行数: {row_count}")
+            if row_count >= 0:
+                self._row_count_label.setText(f"影响行数: {row_count}")
+                self._result_info_label.setText(
+                    f"✅ 执行完成 | 影响行数: {row_count} | 耗时: {elapsed*1000:.1f}ms"
+                )
+            else:
+                self._result_info_label.setText(
+                    f"✅ 执行完成 | 耗时: {elapsed*1000:.1f}ms"
+                )
+            self._result_info_label.setStyleSheet("color: #228b22; padding: 4px; font-weight: bold;")
+            self._export_btn.setEnabled(False)
 
         msg = f"执行成功\n耗时: {elapsed*1000:.2f} 毫秒\n"
         if columns:
@@ -281,6 +313,9 @@ class MainWindow(QMainWindow):
         self._execute_btn.setEnabled(True)
         self._explain_btn.setEnabled(True)
         self._msg_text.setText(f"执行失败:\n{error_msg}")
+        self._result_info_label.setText(f"❌ 执行失败: {error_msg[:60]}{'...' if len(error_msg) > 60 else ''}")
+        self._result_info_label.setStyleSheet("color: #dc143c; padding: 4px; font-weight: bold;")
+        self._export_btn.setEnabled(False)
         self._result_tabs.setCurrentIndex(1)
         self._status_bar.showMessage("执行失败", 3000)
         self._history_panel.refresh()
@@ -303,11 +338,29 @@ class MainWindow(QMainWindow):
         self._sql_editor.set_sql(sql)
         self.execute_sql()
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Return and event.modifiers() == Qt.ControlModifier:
-            self.execute_sql()
+    def _export_results(self) -> None:
+        rows = self._result_table._model._static_data
+        columns = self._result_table.columns
+        if not rows or not columns:
+            QMessageBox.warning(self, "提示", "没有可导出的数据")
             return
-        super().keyPressEvent(event)
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出查询结果", "query_results.csv",
+            "CSV 文件 (*.csv);;所有文件 (*.*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            import csv
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(columns)
+                writer.writerows(rows)
+            self._status_bar.showMessage(f"已导出到: {file_path}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", str(e))
 
     def closeEvent(self, event):
         for db_path in list(self._db._connections.keys()):

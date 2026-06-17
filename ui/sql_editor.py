@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 from PySide6.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 import re
 
 
@@ -90,6 +90,8 @@ class SqlHighlighter(QSyntaxHighlighter):
 
 
 class SqlEditor(QPlainTextEdit):
+    execute_requested = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._highlighter = SqlHighlighter(self.document())
@@ -111,7 +113,8 @@ class SqlEditor(QPlainTextEdit):
         self.setPlainText(sql)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Return and event.modifiers() == Qt.ControlModifier:
-            self.parent().execute_sql() if hasattr(self.parent(), 'execute_sql') else None
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.modifiers() == Qt.ControlModifier:
+            self.execute_requested.emit()
+            event.accept()
             return
         super().keyPressEvent(event)
