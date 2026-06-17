@@ -5,15 +5,24 @@ from typing import Optional, List, Tuple, Any
 
 class DatabaseManager:
     _instance = None
+    _initialized = False
 
     def __init__(self):
+        if DatabaseManager._initialized:
+            return
         self._connections = {}
         self._current_db: Optional[str] = None
+        DatabaseManager._initialized = True
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    def _reset_for_test(self):
+        self._connections = {}
+        self._current_db = None
+        DatabaseManager._initialized = False
 
     def connect(self, db_path: str) -> bool:
         try:
